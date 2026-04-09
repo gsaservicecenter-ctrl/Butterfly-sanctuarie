@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Butterfly Catcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #87CEEB, #E0F7FA);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            cursor: none; /* Hide cursor to show net */
+        }
+        canvas {
+            display: block;
+        }
+        .ui-panel {
+            position: absolute;
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- UI Overlay -->
+    <div class="ui-panel top-4 left-4 flex flex-col gap-2">
+        <div class="bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-lg border-2 border-green-400">
+            <span class="text-green-700 font-bold">Level: </span>
+            <span id="level-display" class="text-xl">1</span>
+        </div>
+        <div class="bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-lg border-2 border-blue-400">
+            <span class="text-blue-700 font-bold">Score: </span>
+            <span id="score-display" class="text-xl">0</span>
+        </div>
+    </div>
+
+    <div class="ui-panel top-4 right-4">
+        <div class="bg-white/80 backdrop-blur px-4 py-2 rounded-full shadow-lg border-2 border-orange-400">
+            <span class="text-orange-700 font-bold">Goal: </span>
+            <span id="goal-display" class="text-xl">0/10</span>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-50 pointer-events-auto">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-sm border-4 border-green-500">
+            <h2 id="modal-title" class="text-3xl font-bold text-green-600 mb-4">Level Complete!</h2>
+            <p id="modal-text" class="text-gray-600 mb-6 font-medium">You caught all the butterflies!</p>
+            <button id="modal-btn" class="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-full font-bold transition-transform active:scale-95 shadow-lg">
+                Next Level
+            </button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const levelDisplay = document.getElementById('level-display');
+    const scoreDisplay = document.getElementById('score-display');
+    const goalDisplay = document.getElementById('goal-display');
+    const modalOverlay = document.getElementById('modal-overlay');
+    const modalTitle = document.getElementById('modal-title');
+    const modalText = document.getElementById('modal-text');
+    const modalBtn = document.getElementById('modal-btn');
+
+    // Game State
+    let state = {
+        level: 1,
+        score: 0,
+        caughtInLevel: 0,
+        requiredToPass: 10,
+        butterflies: [],
+        mouse: { x: -100, y: -100 },
+        isPaused: false,
+        gameWon: false
+    };
+
+    // Level configuration (colors and speeds)
+    const levelConfigs = [
+        { color: '#FFB74D', speed: 1.5, size: 15 }, // Level 1: Orange
+        { color: '#64B5F6', speed: 1.8, size: 14 }, // Level 2: Blue
+        { color: '#81C784', speed: 2.1, size: 13 }, // Level 3: Green
+        { color: '#F06292', speed: 2.4, size: 12 }, // Level 4: Pink
+        { color: '#BA68C8', speed: 2.7, size: 12 }, // Level 5: Purple
+        { color: '#FFF176', speed: 3.0, size: 11 }, // Level 6: Yellow
+        { color: '#4DB6AC', speed: 3.3, size: 11 }, // Level 7: Teal
+        { color: '#E57373', speed: 3.6, size: 10 }, // Level 8: Red
+        { color: '#DCE775', speed: 4.0, size: 10 }, // Level 9: Lime
+        { color: '#FFFFFF', speed: 4.5, size: 9 },  // Level 10: White (Ghost)
+    ];
+
+    class Butterfly {
+        constructor(config) {
+            this.reset(config);
+        }
+
+        reset(config) {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            this.size = config.size;
+            this.color = config.color;
+            this.angle = Math.random() * Math.PI * 2;
+            this.speed = config.speed + Math.random();
+            this.wingPhase = 0;
+            this.vx = Math.cos(this.angle) * this.speed;
+            this.vy = Math.sin(this.angle) * this.speed;
+        }
+
+        update() {
+            // Flapping motion
+            this.wingPhase += 0.2;
+            
+            // Random movement jitter
+            this.angle += (Math.random() - 0.5) * 0.2;
+            this.vx = Math.cos(this.angle) * this.speed;
+            this.vy = Math.sin(this.angle) * this.speed;
+
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // Bounce off walls
+            if (this.x < 0 || this.x > canvas.width) this.angle = Math.PI - this.angle;
+            if (this.y < 0 || this.y > canvas.height) this.angle = -this.angle;
+        }
+
+        draw() {
+            const flap = Math.abs(Math.sin(this.wingPhase)) * this.size;
+            
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.angle + Math.PI/2);
+
+            // Draw Body
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 2, this.size, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw Wings
+            ctx.fillStyle = this.color;
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 1;
+
+            // Right wing
+            ctx.beginPath();
+            ctx.ellipse(flap/2 + 2, -this.size/2, flap, this.size, 0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // Left wing
+            ctx.beginPath();
+            ctx.ellipse(-flap/2 - 2, -this.size/2, flap, this.size, -0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    function initLevel() {
+        state.caughtInLevel = 0;
+        state.butterflies = [];
+        const config = levelConfigs[state.level - 1];
+        
+        // Populate butterflies
+        for (let i = 0; i < state.requiredToPass; i++) {
+            state.butterflies.push(new Butterfly(config));
+        }
+        
+        updateUI();
+    }
+
+    function updateUI() {
+        levelDisplay.innerText = state.level;
+        scoreDisplay.innerText = state.score;
+        goalDisplay.innerText = `${state.caughtInLevel}/${state.requiredToPass}`;
+    }
+
+    function drawNet() {
+        const x = state.mouse.x;
+        const y = state.mouse.y;
+
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Handle
+        ctx.strokeStyle = '#5D4037';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(30, 60);
+        ctx.stroke();
+
+        // Net Ring
+        ctx.strokeStyle = '#90A4AE';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 35, 25, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Netting (mesh)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 33, 23, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function checkCollisions() {
+        const netRadius = 35;
+        for (let i = state.butterflies.length - 1; i >= 0; i--) {
+            const b = state.butterflies[i];
+            const dx = b.x - state.mouse.x;
+            const dy = b.y - state.mouse.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < netRadius) {
+                state.butterflies.splice(i, 1);
+                state.caughtInLevel++;
+                state.score += 10 * state.level;
+                updateUI();
+
+                if (state.caughtInLevel >= state.requiredToPass) {
+                    showLevelComplete();
+                }
+            }
+        }
+    }
+
+    function showLevelComplete() {
+        state.isPaused = true;
+        modalOverlay.classList.remove('hidden');
+        
+        if (state.level < 10) {
+            modalTitle.innerText = `Level ${state.level} Cleared!`;
+            modalText.innerText = "The butterflies are getting faster. Ready for more?";
+            modalBtn.innerText = "Next Level";
+        } else {
+            modalTitle.innerText = "Grand Master Catcher!";
+            modalText.innerText = `Incredible! You've cleared all 10 levels.\nFinal Score: ${state.score}`;
+            modalBtn.innerText = "Play Again";
+            state.gameWon = true;
+        }
+    }
+
+    function resetGame() {
+        state.level = 1;
+        state.score = 0;
+        state.gameWon = false;
+        initLevel();
+    }
+
+    function nextLevel() {
+        if (state.gameWon) {
+            resetGame();
+        } else {
+            state.level++;
+            initLevel();
+        }
+        state.isPaused = false;
+        modalOverlay.classList.add('hidden');
+    }
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    function animate() {
+        if (!state.isPaused) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background hints (grass/flowers simplified)
+            ctx.fillStyle = '#4CAF50';
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+
+            state.butterflies.forEach(b => {
+                b.update();
+                b.draw();
+            });
+
+            checkCollisions();
+            drawNet();
+        }
+        requestAnimationFrame(animate);
+    }
+
+    // Input Handling
+    window.addEventListener('mousemove', (e) => {
+        state.mouse.x = e.clientX;
+        state.mouse.y = e.clientY;
+    });
+
+    window.addEventListener('touchstart', (e) => {
+        state.mouse.x = e.touches[0].clientX;
+        state.mouse.y = e.touches[0].clientY;
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+        state.mouse.x = e.touches[0].clientX;
+        state.mouse.y = e.touches[0].clientY;
+    }, { passive: false });
+
+    modalBtn.addEventListener('click', nextLevel);
+    window.addEventListener('resize', resize);
+
+    // Start Game
+    window.onload = () => {
+        resize();
+        initLevel();
+        animate();
+    };
+
+</script>
+</body>
+</html>
